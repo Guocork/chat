@@ -14,12 +14,31 @@ fn main() {
     let mut clients = vec![]; // 创建多个客户端连接服务器 因为聊天不会只有一个客户端登入服务器
     let (tx, rx) = mpsc::channel::<String>(); // 设定通道呢内通信的信息是String
 
-    loop {
+    loop { // 这里是主线程干的事 在持续的监听客户端的连接
         if let Ok((mut socket, addr)) = server.accept() {
             println!("Client {} connected", addr);
 
             let tx = tx.clone();
             clients.push(socket.try_clone().expect("failed to clone client"));
+
+            thread::spawn(move || loop {
+                let mut buff = vec![0; MSG_SIZE];
+
+                match socket.read_exact(&mut buff) {
+                    Ok(_) => {
+                        let msg = buff.into_iter().take_while(|&x| x != 0).collect::<Vec<_>>();
+                        let msg = String::from_utf8(msg).expect("Invalid utf8 message");
+
+                        println!("{}: {:?}",addr, msg);
+                        tx.send(msg).expect("failed to send msg to rx");
+                    },
+                    Err(ref err) if err.kind() == ErrorKind::WouldBlock => (),
+                    Err(_) => {
+                        println!("closing connection with: {}", addr);
+                        break;
+                    }
+                }
+            });
         }
     }
 }
